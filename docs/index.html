@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Калькулятор A/B-теста</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: две колонки — слева параметры, справа ответ и кривая MDE; на телефоне одна колонка */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #14161a; --muted: #5a6070; --line: #dfe2e8;
+  --control: #2a78d6; --test: #eb6834; --soft: #e8f0fb;
+  --sans: "Golos Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111317; --panel: #1a1d23; --ink: #eceef2; --muted: #9aa1b0; --line: #2c313a;
+  --control: #5b9cf0; --test: #f4844f; --soft: #1d2a3d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111317; --panel: #1a1d23; --ink: #eceef2; --muted: #9aa1b0; --line: #2c313a;
+  --control: #5b9cf0; --test: #f4844f; --soft: #1d2a3d; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5 }
+.wrap { max-width: 1040px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 48px }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; font-weight: 700; text-wrap: balance }
+.lead { color: var(--muted); margin: 0 0 24px; max-width: 65ch }
+.grid { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; align-items: start }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr) } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px }
+form { display: grid; gap: 14px }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 500 }
+.row { display: flex; gap: 8px; align-items: center }
+input[type=number], select { font: 500 15px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0 }
+input[type=range] { width: 100%; accent-color: var(--control) }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--control); outline-offset: 2px }
+.unit { font: 13px var(--mono); color: var(--muted); white-space: nowrap }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.presets { display: flex; flex-wrap: wrap; gap: 6px }
+button { font: 500 13px var(--sans); color: var(--control); background: var(--soft); border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer }
+button:hover { filter: brightness(0.96) }
+.hint { font-size: 12px; color: var(--muted) }
+.answer { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px }
+@media (max-width: 520px) { .answer { grid-template-columns: minmax(0, 1fr) } }
+.k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+.v { font: 600 26px var(--mono); font-variant-numeric: tabular-nums; line-height: 1.2 }
+.v small { font-size: 13px; font-weight: 400; color: var(--muted) }
+.sub { font-size: 13px; color: var(--muted) }
+.cuped { color: var(--control) }
+hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0 }
+.chart { position: relative }
+svg { display: block; width: 100%; height: auto; overflow: visible }
+.axis text { fill: var(--muted); font: 11px var(--mono) }
+.grid-l { stroke: var(--line) }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font: 12px var(--mono);
+  padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -115%) }
+.reverse { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: end }
+@media (max-width: 520px) { .reverse { grid-template-columns: minmax(0, 1fr) } }
+.foot { font-size: 13px; color: var(--muted); margin-top: 20px; max-width: 70ch }
+code { font-family: var(--mono); font-size: 13px }
+</style>
+
+<div class="wrap">
+  <h1>Калькулятор A/B-теста для доли</h1>
+  <p class="lead">Сколько пользователей нужно, чтобы заметить изменение конверсии или удержания, и какой эффект можно поймать на уже набранной выборке. Формулы те же, что в <code>src/abtest/stats.py</code>; в примере подставлены цифры теста Cookie Cats.</p>
+
+  <div class="grid">
+    <div class="panel">
+      <form id="f" onsubmit="return false">
+        <div class="presets">
+          <button type="button" data-p="cc">Cookie Cats, retention_7</button>
+          <button type="button" data-p="cc1">Cookie Cats, retention_1</button>
+          <button type="button" data-p="conv">Конверсия 3%</button>
+        </div>
+        <label for="p">Базовая доля (контроль)
+          <div class="row"><input id="p" type="number" step="0.1" min="0.1" max="99.9" value="19.02"><span class="unit">%</span></div></label>
+        <label for="mde">Эффект, который хотим заметить
+          <div class="row"><input id="mde" type="number" step="0.05" min="0.01" value="0.82"><span class="unit">п.п.</span></div>
+          <span class="hint" id="rel"></span></label>
+        <div class="two">
+          <label for="alpha">α (ложная тревога)
+            <select id="alpha"><option value="0.01">0,01</option><option value="0.05" selected>0,05</option><option value="0.1">0,10</option></select></label>
+          <label for="power">Мощность
+            <select id="power"><option value="0.8" selected>80%</option><option value="0.9">90%</option><option value="0.95">95%</option></select></label>
+        </div>
+        <label for="share">Доля трафика в тесте (B)
+          <div class="row"><input id="share" type="range" min="10" max="90" step="5" value="50"><span class="unit" id="shareV">50%</span></div></label>
+        <label for="daily">Новых пользователей в день (всего)
+          <div class="row"><input id="daily" type="number" step="500" min="1" value="9000"><span class="unit">/день</span></div></label>
+        <label for="rho">CUPED: корреляция с метрикой до теста, ρ
+          <div class="row"><input id="rho" type="range" min="0" max="0.9" step="0.05" value="0"><span class="unit" id="rhoV">0,00</span></div>
+          <span class="hint">0 — без CUPED. В Cookie Cats ковариата min(раунды, 29) дала для удержания на 7-й день ρ ≈ 0,45 (ноутбук 3).</span></label>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="answer">
+        <div><div class="k">в контроле</div><div class="v" id="nA">—</div><div class="sub cuped" id="nAc"></div></div>
+        <div><div class="k">в тесте</div><div class="v" id="nB">—</div><div class="sub cuped" id="nBc"></div></div>
+        <div><div class="k">длительность</div><div class="v" id="days">—</div><div class="sub cuped" id="daysC"></div></div>
+      </div>
+      <div class="sub" id="note"></div>
+      <hr>
+      <div class="k" style="margin-bottom:6px">Какой эффект заметит тест при разном размере группы</div>
+      <div class="chart" id="chart"></div>
+      <hr>
+      <div class="k" style="margin-bottom:8px">Обратная задача: выборка уже есть</div>
+      <div class="reverse">
+        <label for="have">Пользователей в каждой группе
+          <input id="have" type="number" step="1000" min="100" value="45094"></label>
+        <div><div class="v" id="mdeHave">—</div><div class="sub" id="powHave"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Расчёт по нормальному приближению для разности двух долей, двусторонний тест. Дисперсия берётся по альтернативе: p₁(1−p₁) + p₂(1−p₂). CUPED уменьшает дисперсию в (1 − ρ²) раз, поэтому и нужная выборка уменьшается во столько же. Длительность округлена до целых дней; на практике тест стоит гонять полными неделями, чтобы не поймать эффект дня недели. Код и разбор теста: <a href="https://github.com/Devo4kaRobot/ab-test-cookie-cats" style="color:var(--control)">github.com/Devo4kaRobot/ab-test-cookie-cats</a>.</p>
+</div>
+
+<script>
+// обратная функция нормального распределения (алгоритм Acklam, погрешность ~1e-9)
+function qnorm(p) {
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const pl = 0.02425;
+  if (p < pl) { const q = Math.sqrt(-2 * Math.log(p)); return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  if (p > 1 - pl) return -qnorm(1 - p);
+  const q = p - 0.5, r = q * q;
+  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+function pnorm(x) { // через erf, погрешность ~1e-7
+  const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2);
+  const y = 1 - (((((1.061405429*t - 1.453152027)*t) + 1.421413741)*t - 0.284496736)*t + 0.254829592) * t * Math.exp(-x*x/2);
+  return x >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+}
+const Z = (alpha, power) => [qnorm(1 - alpha / 2), qnorm(power)];
+function sampleSize(p, mde, alpha, power, ratio) {
+  const [za, zb] = Z(alpha, power), p2 = p + mde;
+  const v = p * (1 - p) + p2 * (1 - p2) / ratio;
+  const nA = Math.ceil((za + zb) ** 2 * v / mde ** 2);
+  return [nA, Math.ceil(nA * ratio)];
+}
+const mdeFor = (p, nA, nB, alpha, power) => { const [za, zb] = Z(alpha, power); return (za + zb) * Math.sqrt(p * (1 - p) * (1 / nA + 1 / nB)); };
+function powerFor(p, mde, nA, nB, alpha) {
+  const p2 = p + mde, se = Math.sqrt(p * (1 - p) / nA + p2 * (1 - p2) / nB), za = qnorm(1 - alpha / 2);
+  return 1 - pnorm(za - Math.abs(mde) / se) + pnorm(-za - Math.abs(mde) / se);
+}
+if (typeof module !== "undefined") module.exports = { sampleSize, mdeFor, powerFor };
+
+if (typeof document !== "undefined") {
+  const $ = id => document.getElementById(id);
+  const fmt = n => Math.round(n).toLocaleString("ru-RU");
+  const dec = (x, k = 2) => x.toFixed(k).replace(".", ",");
+  const days = n => { const d = Math.ceil(n); return d + " " + (d % 10 === 1 && d % 100 !== 11 ? "день" : d % 10 >= 2 && d % 10 <= 4 && (d % 100 < 10 || d % 100 >= 20) ? "дня" : "дней"); };
+  const presets = { cc: { p: 19.02, mde: 0.82, daily: 9000, have: 45094, rho: 0 }, cc1: { p: 44.82, mde: 0.59, daily: 9000, have: 45094, rho: 0 }, conv: { p: 3, mde: 0.3, daily: 5000, have: 20000, rho: 0 } };
+  document.querySelectorAll("[data-p]").forEach(b => b.addEventListener("click", () => {
+    const s = presets[b.dataset.p]; for (const k in s) $(k).value = s[k]; update();
+  }));
+  function read() {
+    return { p: +$("p").value / 100, mde: +$("mde").value / 100, alpha: +$("alpha").value, power: +$("power").value,
+      share: +$("share").value / 100, daily: +$("daily").value, rho: +$("rho").value, have: +$("have").value };
+  }
+  function update() {
+    const s = read();
+    $("shareV").textContent = Math.round(s.share * 100) + "%";
+    $("rhoV").textContent = dec(s.rho);
+    if (!(s.p > 0 && s.p < 1 && s.mde > 0 && s.p + s.mde < 1)) { $("note").textContent = "Проверьте базовую долю и эффект: доля в тесте должна остаться между 0 и 100%."; return; }
+    $("rel").textContent = `это ${dec(s.mde / s.p * 100, 1)}% от базы: ${dec(s.p * 100)}% → ${dec((s.p + s.mde) * 100)}%`;
+    const ratio = s.share / (1 - s.share);
+    const [nA, nB] = sampleSize(s.p, s.mde, s.alpha, s.power, ratio);
+    const k = 1 - s.rho ** 2;
+    const d = (nA + nB) / s.daily;
+    $("nA").textContent = fmt(nA); $("nB").textContent = fmt(nB); $("days").textContent = days(d);
+    const on = s.rho > 0;
+    $("nAc").textContent = on ? `с CUPED: ${fmt(nA * k)}` : "";
+    $("nBc").textContent = on ? `с CUPED: ${fmt(nB * k)}` : "";
+    $("daysC").textContent = `полными неделями: ${Math.ceil(d / 7)} нед.` + (on ? ` · с CUPED: ${days(d * k)}` : "");
+    $("note").textContent = `Всего ${fmt(nA + nB)} пользователей.` + (on ? ` CUPED при ρ = ${dec(s.rho)} сокращает выборку в ${dec(1 / k, 1)} раза.` : "");
+    const nH = s.have, nHB = Math.round(nH * ratio);
+    const m = mdeFor(s.p, nH, nHB, s.alpha, s.power);
+    $("mdeHave").innerHTML = `${dec(m * 100)} <small>п.п. MDE</small>`;
+    $("powHave").textContent = `мощность для эффекта ${dec(s.mde * 100)} п.п.: ${Math.round(powerFor(s.p, s.mde, nH, nHB, s.alpha) * 100)}%` + (nHB !== nH ? ` (в тесте ${fmt(nHB)})` : "");
+    draw(s, ratio, nA);
+  }
+  function draw(s, ratio, nNeed) {
+    const W = 640, H = 260, L = 48, R = 16, T = 12, B = 34;
+    const xMax = Math.max(nNeed, s.have) * 2.2, xMin = xMax / 40;
+    const pts = []; for (let i = 0; i <= 80; i++) { const n = xMin + (xMax - xMin) * i / 80; pts.push([n, mdeFor(s.p, n, n * ratio, s.alpha, s.power) * 100]); }
+    const yMax = Math.min(pts[0][1], s.mde * 100 * 3.5), yMin = 0;
+    const X = n => L + (n - 0) / xMax * (W - L - R), Y = v => T + (1 - (Math.min(v, yMax) - yMin) / (yMax - yMin)) * (H - T - B);
+    const nice = (max, cnt) => { const raw = max / cnt, mag = 10 ** Math.floor(Math.log10(raw)); const st = [1, 2, 2.5, 5, 10].map(x => x * mag).find(x => x >= raw); const out = []; for (let v = 0; v <= max + 1e-9; v += st) out.push(v); return out; };
+    const xt = nice(xMax, 5), yt = nice(yMax, 4);
+    const kfmt = n => n >= 1000 ? (n / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + "k" : String(Math.round(n));
+    let g = `<g class="axis">`;
+    yt.forEach(v => g += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${dec(v, yMax < 1.5 ? 2 : 1)}</text>`);
+    xt.forEach(v => g += `<text x="${X(v)}" y="${H - B + 18}" text-anchor="middle">${kfmt(v)}</text>`);
+    g += `<text x="${W - R}" y="${H - 2}" text-anchor="end">пользователей в контроле</text><text x="${L - 6}" y="${T - 2}" text-anchor="end">п.п.</text></g>`;
+    const path = pts.filter(p => p[1] <= yMax * 1.001).map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join("");
+    const tx = X(nNeed), ty = Y(s.mde * 100);
+    const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Кривая минимального детектируемого эффекта">${g}
+      <line x1="${L}" x2="${W - R}" y1="${ty}" y2="${ty}" stroke="var(--test)" stroke-dasharray="4 4" stroke-width="1.5"/>
+      <text x="${W - R}" y="${ty - 6}" text-anchor="end" fill="var(--test)" font-size="11" font-family="var(--mono)">цель ${dec(s.mde * 100)} п.п.</text>
+      <path d="${path}" fill="none" stroke="var(--control)" stroke-width="2"/>
+      <circle cx="${tx}" cy="${ty}" r="5" fill="var(--control)" stroke="var(--panel)" stroke-width="2"/>
+      <line id="hx" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
+      <circle id="hd" r="4" fill="var(--control)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>
+      <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="hit"/></svg><div class="tip" id="tip" hidden></div>`;
+    $("chart").innerHTML = svg;
+    const hit = $("hit"), svgEl = $("chart").querySelector("svg");
+    const move = e => {
+      const r = svgEl.getBoundingClientRect(), sx = W / r.width;
+      const x = (e.clientX - r.left) * sx, n = Math.max(xMin, (x - L) / (W - L - R) * xMax);
+      const v = mdeFor(s.p, n, n * ratio, s.alpha, s.power) * 100;
+      if (v > yMax) return;
+      $("hx").setAttribute("x1", X(n)); $("hx").setAttribute("x2", X(n)); $("hx").setAttribute("visibility", "visible");
+      $("hd").setAttribute("cx", X(n)); $("hd").setAttribute("cy", Y(v)); $("hd").setAttribute("visibility", "visible");
+      const tip = $("tip"); tip.hidden = false; tip.textContent = `${fmt(n)} на группу → MDE ${dec(v)} п.п.`;
+      tip.style.left = (X(n) / sx) + "px"; tip.style.top = (Y(v) / sx) + "px";
+    };
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerleave", () => { $("tip").hidden = true; $("hx").setAttribute("visibility", "hidden"); $("hd").setAttribute("visibility", "hidden"); });
+  }
+  document.querySelectorAll("input, select").forEach(el => el.addEventListener("input", update));
+  update();
+}
+</script>

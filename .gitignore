@@ -1,0 +1,14 @@
+# данные скачиваются scripts/get_data.py
+data/*.csv
+# окружение
+.venv/
+# личные скрипты публикации и локальные настройки
+scripts/local.bat
+scripts/publish.bat
+scripts/update.bat
+# мусор
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+logs/
